@@ -1,27 +1,33 @@
 import { App, Plugin, PluginSettingTab, Setting, TFile, parseYaml } from 'obsidian';
 import { DateTime } from 'luxon';
 
-interface PropertiesInSuggestionSettings {
+interface CustomizeSuggestionContainerSettings {
 	properties: string;    // CSV of properties to display
 	dateFormat: string;    // Luxon date format
-	ignoreFolders: string; // CSV of folder paths to ignore
+	hideFolders: string;   // CSV of folder paths to hide
+	showCreatedDate: boolean;
+	showModifiedDate: boolean;
+	hideNonexistentFiles: boolean;
 }
 
-const DEFAULT_SETTINGS: PropertiesInSuggestionSettings = {
+const DEFAULT_SETTINGS: CustomizeSuggestionContainerSettings = {
 	properties: 'Categories',
-	dateFormat: 'yyyy-MM-dd hhmmA',
-	ignoreFolders: ''
+	dateFormat: 'yyyy-MM-dd hhmma',
+	hideFolders: 'Templates, Archive',
+	showCreatedDate: false,
+	showModifiedDate: false,
+	hideNonexistentFiles: true,
 };
 
-export default class PropertiesInSuggestionPlugin extends Plugin {
-	settings: PropertiesInSuggestionSettings;
+export default class CustomizeSuggestionContainerPlugin extends Plugin {
+	settings: CustomizeSuggestionContainerSettings;
 	private observer: MutationObserver | null = null;
-	private suggestionContentToModify = '.suggestion-content:not(.modal-container .suggestion-content)';
-	private fileMap: Record<string, string> = {}; // alias or GUID → real path
+	// private suggestionContentToModify = '.suggestion-content:not(.modal-container .suggestion-content), .prompt-results .suggestion-content';
+	private suggestionContentToModify = '.suggestion-content';
 
 	async onload() {
 		await this.loadSettings();
-		this.addSettingTab(new PropertiesInSuggestionSettingTab(this.app, this));
+		this.addSettingTab(new CustomizeSuggestionContainerSettingTab(this.app, this));
 
 		this.observer = new MutationObserver(async (mutations) => {
 			for (const m of mutations) {
@@ -63,26 +69,54 @@ export default class PropertiesInSuggestionPlugin extends Plugin {
 		await this.saveData(this.settings);
 	}
 
-	private isFileIgnored(filePath: string) {
-		const ignoreFolders = this.settings.ignoreFolders
+	private isFileHidden(filePath: string) {
+		const hideFolders = this.settings.hideFolders
 			.split(',')
 			.map(f => f.trim())
 			.filter(f => f.length > 0);
-		return ignoreFolders.some(folder => filePath.startsWith(folder + '/'));
+
+		return hideFolders.some(folder => filePath.startsWith(folder + '/'));
 	}
 
-	private async processSuggestionContent(el: HTMLElement) {
-		const allowedProps = this.settings.properties
-			.split(',')
-			.map(p => p.trim())
-			.filter(p => p.length > 0);
+	private hasCommandInputAncestor(el: HTMLElement): boolean {
+		let parent = el.parentElement;
+		while (parent) {
+			if (
+				parent.querySelector(
+					'.prompt-input-container input[placeholder="Select a command..."]'
+				)
+			) {
+				return true;
+			}
+			parent = parent.parentElement;
+		}
+		return false;
+	}
 
+
+	private async processSuggestionContent(el: HTMLElement) {
+
+		// Do not hide or modify anything if this suggestion is in the command-palette UI
+		if (this.hasCommandInputAncestor(el)) {
+			return;
+		}
+		console.log(el.outerHTML)
 		const titleEl = el.querySelector('.suggestion-title');
 		const noteEl = el.querySelector('.suggestion-note');
-		if (!titleEl || !noteEl) return;
+		if (!titleEl) return;
 
 		const title = titleEl.textContent?.trim() ?? '';
-		const note = noteEl.textContent?.trim() ?? '';
+		const note = noteEl?.textContent?.trim() ?? '';
+
+		// check to see if the element contains any parent with a child of .prompt-input-container that contains an input with a placeholder of "Select a command..." if it does, then DON'T hide it.
+
+		// If both title and note are empty, hide the suggestion
+		if (title === '' && note === '') {
+			el.style.display = 'none';
+			return;
+		}
+
+		console.log(`note: ${note}`)
 
 		let filename = '';
 		if (note === '') {
@@ -93,12 +127,51 @@ export default class PropertiesInSuggestionPlugin extends Plugin {
 			filename = `${note}.md`;
 		}
 
-		const fileProperties = await this.getMetadataPropertiesFromFile(this.settings.properties, filename);
+		// Try to find the actual file in the vault
+		let file = this.app.vault.getAbstractFileByPath(filename) as TFile | null;
+		if (!file) {
+			const allFiles = this.app.vault.getMarkdownFiles();
+			const matching = allFiles.find(f => f.name === `${title}.md`);
+			if (matching) file = matching;
+		}
+
+		if (!file) {
+			// Remove the nonexistent file if the setting is set to true.
+			if (this.settings.hideNonexistentFiles) {
+				const parentItem = el.closest('.suggestion-item');
+				if (parentItem) parentItem.remove();
+			}
+			return;
+		}
+
+		// Skip hidden folders by removing the top-level suggestion-item
+		if (this.isFileHidden(file.path)) {
+			const parentItem = el.closest('.suggestion-item');
+			if (parentItem) parentItem.remove();
+			return;
+		}
+
+		const fileProperties = await this.getMetadataPropertiesFromFile(this.settings.properties, file);
 
 		// Clear old properties to avoid duplication
 		el.querySelectorAll('.suggestion-property').forEach(node => node.remove());
 
-		// Render properties
+		// Add created / modified dates if enabled
+		if (this.settings.showCreatedDate) {
+			const createdEl = document.createElement('div');
+			createdEl.className = 'suggestion-property';
+			createdEl.textContent = 'Created: ' + DateTime.fromMillis(file.stat.ctime).toFormat(this.settings.dateFormat);
+			el.appendChild(createdEl);
+		}
+
+		if (this.settings.showModifiedDate) {
+			const modifiedEl = document.createElement('div');
+			modifiedEl.className = 'suggestion-property';
+			modifiedEl.textContent = 'Modified: ' + DateTime.fromMillis(file.stat.mtime).toFormat(this.settings.dateFormat);
+			el.appendChild(modifiedEl);
+		}
+
+		// Render YAML properties
 		for (const [key, value] of Object.entries(fileProperties)) {
 			const propEl = document.createElement('div');
 			propEl.className = 'suggestion-property';
@@ -130,15 +203,11 @@ export default class PropertiesInSuggestionPlugin extends Plugin {
 		}
 	}
 
-	private async getMetadataPropertiesFromFile(properties: string, filename: string) {
+	private async getMetadataPropertiesFromFile(properties: string, file: TFile) {
 		const requested = properties
 			.split(',')
 			.map(p => p.trim())
 			.filter(p => p.length > 0);
-
-		const file = this.app.vault.getAbstractFileByPath(filename);
-		if (!file || !(file instanceof TFile)) return {};
-		if (this.isFileIgnored(file.path)) return {};
 
 		const content = await this.app.vault.read(file);
 
@@ -148,7 +217,6 @@ export default class PropertiesInSuggestionPlugin extends Plugin {
 
 		const yamlBlock = match[1];
 
-		// Parse YAML via Obsidian API
 		let parsed: any = {};
 		try {
 			parsed = parseYaml(yamlBlock) ?? {};
@@ -168,10 +236,10 @@ export default class PropertiesInSuggestionPlugin extends Plugin {
 	}
 }
 
-class PropertiesInSuggestionSettingTab extends PluginSettingTab {
-	plugin: PropertiesInSuggestionPlugin;
+class CustomizeSuggestionContainerSettingTab extends PluginSettingTab {
+	plugin: CustomizeSuggestionContainerPlugin;
 
-	constructor(app: App, plugin: PropertiesInSuggestionPlugin) {
+	constructor(app: App, plugin: CustomizeSuggestionContainerPlugin) {
 		super(app, plugin);
 		this.plugin = plugin;
 	}
@@ -203,14 +271,47 @@ class PropertiesInSuggestionSettingTab extends PluginSettingTab {
 				}));
 
 		new Setting(containerEl)
-			.setName('Folders to ignore')
-			.setDesc('CSV list of folder paths to skip when looking for properties')
+			.setName('Folders to hide in suggestion container')
+			.setDesc('CSV list of folder paths to hide from the suggestion container')
 			.addText(text => text
 				.setPlaceholder('Templates, Archive')
-				.setValue(this.plugin.settings.ignoreFolders)
+				.setValue(this.plugin.settings.hideFolders)
 				.onChange(async (value) => {
-					this.plugin.settings.ignoreFolders = value;
+					this.plugin.settings.hideFolders = value;
 					await this.plugin.saveSettings();
 				}));
+
+		new Setting(containerEl)
+			.setName('Show created date?')
+			.addToggle(toggle =>
+				toggle
+					.setValue(this.plugin.settings.showCreatedDate)
+					.onChange(async (value) => {
+						this.plugin.settings.showCreatedDate = value;
+						await this.plugin.saveSettings();
+					})
+			);
+
+		new Setting(containerEl)
+			.setName('Show created date?')
+			.addToggle(toggle =>
+				toggle
+					.setValue(this.plugin.settings.showModifiedDate)
+					.onChange(async (value) => {
+						this.plugin.settings.showModifiedDate = value;
+						await this.plugin.saveSettings();
+					})
+			);
+
+		new Setting(containerEl)
+			.setName('Hide files that do not exist?')
+			.addToggle(toggle =>
+				toggle
+					.setValue(this.plugin.settings.hideNonexistentFiles)
+					.onChange(async (value) => {
+						this.plugin.settings.hideNonexistentFiles = value;
+						await this.plugin.saveSettings();
+					})
+			);
 	}
 }
