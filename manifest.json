@@ -1,0 +1,11 @@
+{
+	"id": "properties-in-suggestion",
+	"name": "Properties In Suggestion",
+	"version": "1.0.0",
+	"minAppVersion": "0.15.0",
+	"description": "Show properties in the suggestion container.",
+	"author": "Obsidian",
+	"authorUrl": "https://obsidian.md",
+	"fundingUrl": "https://obsidian.md/pricing",
+	"isDesktopOnly": false
+}

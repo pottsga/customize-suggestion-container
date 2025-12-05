@@ -1,0 +1,29 @@
+{
+	"name": "obsidian-sample-plugin",
+	"version": "1.0.0",
+	"description": "This is a sample plugin for Obsidian (https://obsidian.md)",
+	"main": "main.js",
+	"scripts": {
+		"dev": "node esbuild.config.mjs",
+		"build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
+		"version": "node version-bump.mjs && git add manifest.json versions.json",
+		"deploy": "rm -rf /Users/potts_g/Documents/Vault/.obsidian/plugins/properties-in-suggestion/* && mkdir -p /Users/potts_g/Documents/Vault/.obsidian/plugins/properties-in-suggestion && npm run build && cp manifest.json main.js styles.css /Users/potts_g/Documents/Vault/.obsidian/plugins/properties-in-suggestion/"
+	},
+	"keywords": [],
+	"author": "",
+	"license": "MIT",
+	"devDependencies": {
+		"@types/luxon": "^3.7.1",
+		"@types/node": "^16.11.6",
+		"@typescript-eslint/eslint-plugin": "5.29.0",
+		"@typescript-eslint/parser": "5.29.0",
+		"builtin-modules": "3.3.0",
+		"esbuild": "0.17.3",
+		"obsidian": "latest",
+		"tslib": "2.4.0",
+		"typescript": "4.7.4"
+	},
+	"dependencies": {
+		"luxon": "^3.7.2"
+	}
+}
