@@ -1,4 +1,4 @@
-# Properties in Suggestion
+# Customize Suggestion Container
 Enhances Obsidian suggestion containers by showing selected frontmatter properties, formatting dates, and styling links.
 
 ## Features
@@ -13,7 +13,7 @@ Enhances Obsidian suggestion containers by showing selected frontmatter properti
 
 1. Copy the plugin folder into your Obsidian `plugins` directory.
 2. Enable the plugin in **Settings → Community Plugins**.
-3. Configure the plugin options in **Settings → Properties in Suggestion**.
+3. Configure the plugin options in **Settings → Customize Suggestion Container**.
 
 ## Settings
 
